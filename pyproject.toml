@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "pylotlight"
+version = "0.1.0"
+description = "A data engineering observability tool powered by Streamlit to surface data engineering platform health across the stack into a single pane of glass."
+authors = ["Alex Wohletz"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+streamlit = "^1.37.1"
+pandas = "^2.2.2"
+fastapi = "^0.112.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.8.0"
+pytest = "^8.3.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
