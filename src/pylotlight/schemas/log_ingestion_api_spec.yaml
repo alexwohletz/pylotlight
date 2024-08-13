@@ -1,0 +1,253 @@
+openapi: 3.0.0
+info:
+  title: Pylot Light Log Ingestion API
+  version: 1.0.1
+  description: API specification for ingesting and retrieving logs from various sources in Pylot Light
+
+paths:
+  /ingest:
+    post:
+      summary: Ingest a single log event
+      operationId: ingestLog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogIngestionRequest'
+      responses:
+        '200':
+          description: Successful ingestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogIngestionResponse'
+        '400':
+          description: Invalid input
+        '500':
+          description: Server error
+
+  /ingest/batch:
+    post:
+      summary: Ingest multiple log events in a batch
+      operationId: ingestLogBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchLogIngestionRequest'
+      responses:
+        '200':
+          description: Successful batch ingestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchLogIngestionResponse'
+        '400':
+          description: Invalid input
+        '500':
+          description: Server error
+
+  /logs:
+    get:
+      summary: Retrieve logs based on specified criteria
+      operationId: retrieveLogs
+      parameters:
+        - in: query
+          name: source
+          schema:
+            type: string
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: log_level
+          schema:
+            $ref: '#/components/schemas/LogLevel'
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Successful retrieval of logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogRetrievalResponse'
+        '400':
+          description: Invalid input
+        '500':
+          description: Server error
+
+components:
+  schemas:
+    LogEventBase:
+      type: object
+      required:
+        - timestamp
+        - source
+        - log_level
+        - message
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        source:
+          type: string
+        log_level:
+          $ref: '#/components/schemas/LogLevel'
+        message:
+          type: string
+
+    AirflowLogEvent:
+      allOf:
+        - $ref: '#/components/schemas/LogEventBase'
+        - type: object
+          required:
+            - dag_id
+            - task_id
+            - execution_date
+            - try_number
+          properties:
+            dag_id:
+              type: string
+            task_id:
+              type: string
+            execution_date:
+              type: string
+              format: date-time
+            try_number:
+              type: integer
+
+    DbtLogEvent:
+      allOf:
+        - $ref: '#/components/schemas/LogEventBase'
+        - type: object
+          properties:
+            model_name:
+              type: string
+            node_id:
+              type: string
+            run_id:
+              type: string
+
+    GenericLogEvent:
+      allOf:
+        - $ref: '#/components/schemas/LogEventBase'
+        - type: object
+          properties:
+            additional_data:
+              type: object
+              additionalProperties: true
+
+    LogEvent:
+      oneOf:
+        - $ref: '#/components/schemas/AirflowLogEvent'
+        - $ref: '#/components/schemas/DbtLogEvent'
+        - $ref: '#/components/schemas/GenericLogEvent'
+      discriminator:
+        propertyName: source
+        mapping:
+          airflow: '#/components/schemas/AirflowLogEvent'
+          dbt: '#/components/schemas/DbtLogEvent'
+
+    LogIngestionRequest:
+      type: object
+      required:
+        - log_event
+      properties:
+        log_event:
+          $ref: '#/components/schemas/LogEvent'
+
+    BatchLogIngestionRequest:
+      type: object
+      required:
+        - log_events
+      properties:
+        log_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEvent'
+
+    LogIngestionResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        event_id:
+          type: string
+
+    BatchLogIngestionResponse:
+      type: object
+      required:
+        - success
+        - message
+        - event_ids
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        event_ids:
+          type: array
+          items:
+            type: string
+        failed_events:
+          type: array
+          items:
+            type: integer
+          description: Indices of failed events in the batch
+
+    LogLevel:
+      type: string
+      enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+
+    LogRetrievalResponse:
+      type: object
+      required:
+        - logs
+        - total_count
+        - has_more
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEvent'
+        total_count:
+          type: integer
+        has_more:
+          type: boolean
+
+    SSEMessage:
+      type: object
+      required:
+        - event
+        - data
+      properties:
+        event:
+          type: string
+        data:
+          $ref: '#/components/schemas/LogEvent'
