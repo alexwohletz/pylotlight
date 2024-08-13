@@ -1,5 +1,5 @@
 import pytest
-from pylotlight.data.ingestion import ingest_data  # Assumes you have this function
+from pylotlight.data.api import ingest_data  # Assumes you have this function
 
 def test_ingest_data():
     # Assuming ingest_data returns a dictionary of ingested data
