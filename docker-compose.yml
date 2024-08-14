@@ -1,0 +1,60 @@
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql://pylotlight:pylotlight@postgres/pylotlight
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./src/pylotlight/api:/api
+    networks:
+      - pylotlight
+
+  redis:
+    image: redis/redis-stack-server:7.2.0-v6
+    ports:
+      - 6379:6379
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+    volumes:
+      - redis_data:/data
+    networks:
+      - pylotlight
+      
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    ports:
+      - 8081:8081
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - pylotlight
+
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=pylotlight
+      - POSTGRES_PASSWORD=pylotlight
+      - POSTGRES_DB=pylotlight
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - pylotlight
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  pylotlight:
+    driver: bridge

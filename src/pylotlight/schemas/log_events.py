@@ -1,7 +1,7 @@
 from enum import Enum
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Dict, Any, Literal
 
 class LogEventBase(BaseModel):
     timestamp: datetime = Field(..., description="The timestamp of the log event")
@@ -10,14 +10,14 @@ class LogEventBase(BaseModel):
     message: str = Field(..., description="The log message")
 
 class AirflowLogEvent(LogEventBase):
-    source: str = Field("airflow", const=True)
+    source: str = Literal["airflow"]
     dag_id: str
     task_id: str
     execution_date: datetime
     try_number: int
 
 class DbtLogEvent(LogEventBase):
-    source: str = Field("dbt", const=True)
+    source: str = Literal["dbt"]
     model_name: Optional[str] = None
     node_id: Optional[str] = None
     run_id: Optional[str] = None
@@ -38,7 +38,8 @@ class LogIngestionResponse(BaseModel):
     success: bool
     message: str
     event_id: Optional[str] = None
-
+    warnings: List[str] = Field(default_factory=list)
+    
 class BatchLogIngestionResponse(BaseModel):
     success: bool
     message: str

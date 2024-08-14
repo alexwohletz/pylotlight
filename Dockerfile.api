@@ -1,0 +1,21 @@
+FROM python:3.10-bullseye
+
+USER root
+
+RUN pip install --upgrade pip
+
+RUN useradd -ms /bin/bash api && \
+    mkdir -p /home/api && \
+    chown -R api:api /home/api
+
+USER api
+
+WORKDIR /pylotlight
+
+RUN pip install fastapi[standard] pydantic redis uvicorn
+
+COPY --chown=api:api src/pylotlight .
+
+CMD ["python", "-m", "fastapi", "run", "api/main.py","--port", "8000"]
+
+EXPOSE 8000
