@@ -38,7 +38,7 @@ def process_event(event: dict):
                 status_type=log.status_type,
                 log_level=log.log_level,
                 message=log.message,
-                additional_data=log.model_dump(exclude={'timestamp', 'source', 'status_type', 'log_level', 'message'})
+                additional_data=log.model_dump_json(exclude={'timestamp', 'source', 'status_type', 'log_level', 'message'})
             )
             db.add(db_log)
             db.commit()

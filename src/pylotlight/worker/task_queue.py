@@ -24,7 +24,8 @@ class TaskQueue:
         task_data = {
             'hook_class': task.hook.__class__.__name__,
             'hook_params': {},  # We don't need to store hook params anymore
-            'interval': task.interval
+            'interval': task.interval,
+            'last_run': task.last_run
         }
         self.redis.lpush(self.task_queue_key, json.dumps(task_data))
 
@@ -35,7 +36,9 @@ class TaskQueue:
         if hook_class is None:
             raise ValueError(f"Unknown hook class: {task_dict['hook_class']}")
         hook = hook_class()  # Initialize hook without parameters
-        return Task(hook, task_dict['interval'])
+        task = Task(hook, task_dict['interval'])
+        task.last_run = task_dict.get('last_run', 0)
+        return task
 
     def run_task(self, task: Task):
         current_time = int(time.time())
@@ -50,6 +53,7 @@ class TaskQueue:
                 error_event = {
                     'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
                     'source': task.hook.__class__.__name__,
+                    'status_type': 'failure',
                     'log_level': 'ERROR',
                     'message': f"Error running task: {str(e)}",
                 }
@@ -63,6 +67,7 @@ class TaskQueue:
             try:
                 task = self.get_next_task()
                 self.run_task(task)
+                time.sleep(max(0, task.interval - (int(time.time()) - task.last_run)))
             except Exception as e:
                 logger.error(f"Error processing task: {str(e)}")
-            time.sleep(1)  # Sleep for 1 second before processing the next task
+                time.sleep(5)  # Wait 5 seconds before retrying after an error

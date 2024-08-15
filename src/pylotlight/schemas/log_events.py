@@ -14,29 +14,27 @@ class LogEventBase(BaseModel):
         "protected_namespaces": ()
     }
 
-class AirflowLogEvent(LogEventBase):
-    source: str = Literal["airflow"]
+class AirflowHealthCheckEvent(LogEventBase):
+    source: Literal["airflow_health_check"]
+    metadatabase_status: str
+    scheduler_status: str
+    triggerer_status: str
+
+class AirflowImportErrorEvent(LogEventBase):
+    source: Literal["airflow_import_error"]
+    filename: str
+    stack_trace: str
+
+class AirflowFailedDagEvent(LogEventBase):
+    source: Literal["airflow_failed_dag"]
     dag_id: str
-    task_id: str
     execution_date: datetime
     try_number: int
 
-class AirflowDagRunLogEvent(AirflowLogEvent):
-    source: Literal["airflow_dag_run"]
-    dag_status: str
-
-class AirflowTaskLogEvent(AirflowLogEvent):
-    source: Literal["airflow_task"]
-    task_status: str
-
-class AirflowInstanceLogEvent(AirflowLogEvent):
-    source: Literal["airflow_instance"]
-    scheduler_status: str
-    metastore_status: str
-    dag_processor_status: str
+AirflowLogEvent = Union[AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent]
 
 class DbtLogEvent(LogEventBase):
-    source: str = Literal["dbt"]
+    source: Literal["dbt"]
     model_name: Optional[str] = None
     node_id: Optional[str] = None
     run_id: Optional[str] = None
