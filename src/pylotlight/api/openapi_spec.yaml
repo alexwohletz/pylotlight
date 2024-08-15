@@ -106,11 +106,14 @@ components:
         - source
         - log_level
         - message
+        - status_type
       properties:
         timestamp:
           type: string
           format: date-time
         source:
+          type: string
+        status_type:
           type: string
         log_level:
           $ref: '#/components/schemas/LogLevel'

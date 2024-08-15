@@ -16,3 +16,9 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def create_tables():
+    Base.metadata.create_all(bind=engine)
+
+# Import all models here to ensure they are registered with Base
+from pylotlight.database.models.log_event import LogEvent

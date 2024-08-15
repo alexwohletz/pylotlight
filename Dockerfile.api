@@ -12,7 +12,7 @@ USER api
 
 WORKDIR /pylotlight
 
-RUN pip install fastapi[standard] pydantic redis uvicorn
+RUN pip install fastapi[standard] pydantic redis uvicorn sqlalchemy psycopg2
 
 COPY --chown=api:api src/pylotlight .
 

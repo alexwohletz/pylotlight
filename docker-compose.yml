@@ -16,6 +16,22 @@ services:
     networks:
       - pylotlight
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    depends_on:
+      - redis
+      - postgres
+      - fastapi
+    environment:
+      - DATABASE_URL=postgresql://pylotlight:pylotlight@postgres/pylotlight
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./src:/app/src
+    networks:
+      - pylotlight
+
   redis:
     image: redis/redis-stack-server:7.2.0-v6
     ports:

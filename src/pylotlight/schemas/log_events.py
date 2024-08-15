@@ -6,8 +6,13 @@ from typing import Optional, List, Union, Dict, Any, Literal
 class LogEventBase(BaseModel):
     timestamp: datetime = Field(..., description="The timestamp of the log event")
     source: str = Field(..., description="The source of the log (e.g., 'airflow', 'dbt')")
+    status_type: str = Field(..., description="The status type of the log event (e.g., 'outage', 'incident','failure','normal')")
     log_level: str = Field(..., description="The log level (e.g., INFO, ERROR)")
     message: str = Field(..., description="The log message")
+
+    model_config = {
+        "protected_namespaces": ()
+    }
 
 class AirflowLogEvent(LogEventBase):
     source: str = Literal["airflow"]
@@ -15,6 +20,20 @@ class AirflowLogEvent(LogEventBase):
     task_id: str
     execution_date: datetime
     try_number: int
+
+class AirflowDagRunLogEvent(AirflowLogEvent):
+    source: Literal["airflow_dag_run"]
+    dag_status: str
+
+class AirflowTaskLogEvent(AirflowLogEvent):
+    source: Literal["airflow_task"]
+    task_status: str
+
+class AirflowInstanceLogEvent(AirflowLogEvent):
+    source: Literal["airflow_instance"]
+    scheduler_status: str
+    metastore_status: str
+    dag_processor_status: str
 
 class DbtLogEvent(LogEventBase):
     source: str = Literal["dbt"]
@@ -25,26 +44,42 @@ class DbtLogEvent(LogEventBase):
 class GenericLogEvent(LogEventBase):
     additional_data: Dict[str, Any] = Field(default_factory=dict)
 
-LogEvent = AirflowLogEvent | DbtLogEvent | GenericLogEvent
+LogEvent = Union[AirflowLogEvent, DbtLogEvent, GenericLogEvent]
 
 # API-specific models
 class LogIngestionRequest(BaseModel):
     log_event: LogEvent
 
+    model_config = {
+        "protected_namespaces": ()
+    }
+
 class BatchLogIngestionRequest(BaseModel):
     log_events: List[LogEvent]
+
+    model_config = {
+        "protected_namespaces": ()
+    }
 
 class LogIngestionResponse(BaseModel):
     success: bool
     message: str
     event_id: Optional[str] = None
     warnings: List[str] = Field(default_factory=list)
+
+    model_config = {
+        "protected_namespaces": ()
+    }
     
 class BatchLogIngestionResponse(BaseModel):
     success: bool
     message: str
     event_ids: List[str]
     failed_events: List[int] = Field(default_factory=list, description="Indices of failed events in the batch")
+
+    model_config = {
+        "protected_namespaces": ()
+    }
 
 class LogLevel(str, Enum):
     DEBUG = "DEBUG"
@@ -62,12 +97,24 @@ class LogRetrievalRequest(BaseModel):
     limit: int = Field(100, ge=1, le=1000)
     offset: int = Field(0, ge=0)
 
+    model_config = {
+        "protected_namespaces": ()
+    }
+
 class LogRetrievalResponse(BaseModel):
     logs: List[LogEvent]
     total_count: int
     has_more: bool
 
+    model_config = {
+        "protected_namespaces": ()
+    }
+
 # SSE-specific model
 class SSEMessage(BaseModel):
     event: str = Field(..., description="The type of SSE event")
     data: LogEvent = Field(..., description="The log event data")
+
+    model_config = {
+        "protected_namespaces": ()
+    }
