@@ -14,7 +14,8 @@ services:
     volumes:
       - ./src/pylotlight/api:/api
     networks:
-      - pylotlight
+      - default
+      - airflow-pylotlight
 
   worker:
     build:
@@ -30,7 +31,8 @@ services:
     volumes:
       - ./src:/app/src
     networks:
-      - pylotlight
+      - default
+      - airflow-pylotlight
 
   redis:
     image: redis/redis-stack-server:7.2.0-v6
@@ -40,8 +42,6 @@ services:
       test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
     volumes:
       - redis_data:/data
-    networks:
-      - pylotlight
       
   redis-commander:
     image: rediscommander/redis-commander:latest
@@ -51,8 +51,6 @@ services:
       - REDIS_HOSTS=local:redis:6379
     depends_on:
       - redis
-    networks:
-      - pylotlight
 
   postgres:
     image: postgres:13
@@ -64,13 +62,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    networks:
-      - pylotlight
 
 volumes:
   postgres_data:
   redis_data:
 
 networks:
-  pylotlight:
-    driver: bridge
+     airflow-pylotlight:
+       external: true

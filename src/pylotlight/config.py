@@ -14,7 +14,7 @@ class Config:
         'airflow': {
             'enabled': os.getenv('AIRFLOW_ENABLED', 'true').lower() == 'true',
             'polling_interval': int(os.getenv('AIRFLOW_POLLING_INTERVAL', 300)),
-            'base_url': os.getenv('AIRFLOW_BASE_URL', 'http://localhost:8080/api/v1'),
+            'base_url': os.getenv('AIRFLOW_BASE_URL', 'http://airflow-webserver:8080/api/v1'),
             'api_user': os.getenv('AIRFLOW_API_USER','airflow'),
             'api_password': os.getenv('AIRFLOW_API_PASSWORD','airflow'),
         },

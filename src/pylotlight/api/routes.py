@@ -10,7 +10,9 @@ from pylotlight.schemas.log_events import (
     BatchLogIngestionResponse,
     LogRetrievalResponse,
     LogLevel,
-    AirflowLogEvent,
+    AirflowHealthCheckEvent,
+    AirflowImportErrorEvent,
+    AirflowFailedDagEvent,
     DbtLogEvent,
     GenericLogEvent,
 )
@@ -34,12 +36,19 @@ async def ingest_log(request: LogIngestionRequest):
         log_event_dict = request.log_event.model_dump()
         source = log_event_dict.get("source")
 
-        if source == "airflow":
+        if source.startswith("airflow_"):
             try:
-                log_event = AirflowLogEvent(**log_event_dict)
+                if source == "airflow_health_check":
+                    log_event = AirflowHealthCheckEvent(**log_event_dict)
+                elif source == "airflow_import_error":
+                    log_event = AirflowImportErrorEvent(**log_event_dict)
+                elif source == "airflow_failed_dag":
+                    log_event = AirflowFailedDagEvent(**log_event_dict)
+                else:
+                    raise ValidationError("Unknown Airflow event type")
             except ValidationError:
                 warnings.append(
-                    "Log event doesn't meet Airflow requirements, treating as GenericLogEvent"
+                    f"Log event doesn't meet {source} requirements, treating as GenericLogEvent"
                 )
                 log_event = GenericLogEvent(**log_event_dict)
         elif source == "dbt":
@@ -111,15 +120,17 @@ async def retrieve_logs(
 ):
     # In a real-world scenario, you would query the database here
     # For this example, we'll just return dummy data
-    dummy_log = LogEvent(
+    dummy_log = GenericLogEvent(
         timestamp=datetime.now(),
-        source="airflow",
+        source="airflow_health_check",
+        status_type="normal",
         log_level="INFO",
         message="This is a dummy log message",
-        dag_id="example_dag",
-        task_id="example_task",
-        execution_date=datetime.now(),
-        try_number=1,
+        additional_data={
+            "metadatabase_status": "healthy",
+            "scheduler_status": "healthy",
+            "triggerer_status": "healthy"
+        }
     )
 
     logs = [dummy_log] * min(limit, 10)  # Return at most 10 dummy logs

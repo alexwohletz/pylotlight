@@ -6,12 +6,12 @@ from redis import Redis
 from sqlalchemy.orm import Session
 from pylotlight.database.session import SessionLocal, engine
 from pylotlight.database.models.log_event import LogEvent as DBLogEvent
-from pylotlight.schemas.log_events import LogEvent as SchemaLogEvent, AirflowLogEvent, DbtLogEvent, GenericLogEvent
+from pylotlight.schemas.log_events import LogEvent as SchemaLogEvent, DbtLogEvent, GenericLogEvent, AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent
 from pylotlight.worker.task_queue import TaskQueue
 from pylotlight.worker.task import Task
 from pylotlight.hooks.airflow_hook import AirflowHook
 from pylotlight.config import Config
-
+from pydantic import ValidationError
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,27 @@ sse_redis = Redis(host=config.REDIS_HOST, port=config.REDIS_PORT, db=1)  # Use a
 
 def process_event(event: dict):
     try:
+        # Ensure required fields are present
+        required_fields = ['timestamp', 'source', 'status_type', 'log_level', 'message']
+        for field in required_fields:
+            if field not in event:
+                raise ValidationError(f"Missing required field: {field}")
+
         # Determine the correct LogEvent subclass based on the 'source' field
-        if event['source'].startswith('airflow'):
-            log = AirflowLogEvent(**event)
+        source = event['source']
+        if source.startswith("airflow_"):
+            try:
+                if source == "airflow_health_check":
+                    log = AirflowHealthCheckEvent(**event)
+                elif source == "airflow_import_error":
+                    log = AirflowImportErrorEvent(**event)
+                elif source == "airflow_failed_dag":
+                    log = AirflowFailedDagEvent(**event)
+                else:
+                    raise ValidationError("Unknown Airflow event type")
+            except ValidationError as e:
+                logger.error(f"Log event doesn't meet {source} requirements, treating as GenericLogEvent: {str(e)}")
+                log = GenericLogEvent(**event)
         elif event['source'] == 'dbt':
             log = DbtLogEvent(**event)
         else:
@@ -47,6 +65,8 @@ def process_event(event: dict):
             sse_redis.publish('sse_channel', json.dumps(event))
         finally:
             db.close()
+    except ValidationError as e:
+        logger.error(f"Validation error processing event: {str(e)}")
     except Exception as e:
         logger.error(f"Error processing event: {str(e)}")
 

@@ -2,6 +2,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional, List, Union, Dict, Any, Literal
+from pydantic.json import pydantic_encoder
 
 class LogEventBase(BaseModel):
     timestamp: datetime = Field(..., description="The timestamp of the log event")
@@ -11,6 +12,7 @@ class LogEventBase(BaseModel):
     message: str = Field(..., description="The log message")
 
     model_config = {
+        "json_encoders": {datetime: pydantic_encoder},
         "protected_namespaces": ()
     }
 
@@ -31,8 +33,6 @@ class AirflowFailedDagEvent(LogEventBase):
     execution_date: datetime
     try_number: int
 
-AirflowLogEvent = Union[AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent]
-
 class DbtLogEvent(LogEventBase):
     source: Literal["dbt"]
     model_name: Optional[str] = None
@@ -42,7 +42,7 @@ class DbtLogEvent(LogEventBase):
 class GenericLogEvent(LogEventBase):
     additional_data: Dict[str, Any] = Field(default_factory=dict)
 
-LogEvent = Union[AirflowLogEvent, DbtLogEvent, GenericLogEvent]
+LogEvent = Union[AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent, DbtLogEvent, GenericLogEvent]
 
 # API-specific models
 class LogIngestionRequest(BaseModel):

@@ -3,11 +3,18 @@ import time
 import logging
 from typing import Dict, Type
 from redis import Redis
+from datetime import datetime
 from pylotlight.worker.task import Task
 from pylotlight.hooks.base_hook import BaseHook
 from pylotlight.hooks.airflow_hook import AirflowHook
 
 logger = logging.getLogger(__name__)
+
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 class TaskQueue:
     def __init__(self, redis_client: Redis):
@@ -27,7 +34,7 @@ class TaskQueue:
             'interval': task.interval,
             'last_run': task.last_run
         }
-        self.redis.lpush(self.task_queue_key, json.dumps(task_data))
+        self.redis.lpush(self.task_queue_key, json.dumps(task_data, cls=DateTimeEncoder))
 
     def get_next_task(self) -> Task:
         _, task_data = self.redis.brpop(self.task_queue_key)
@@ -46,18 +53,18 @@ class TaskQueue:
             try:
                 events = task.run()
                 for event in events:
-                    self.redis.lpush('log_queue', json.dumps(event))
+                    self.redis.lpush('log_queue', json.dumps(event.dict(), cls=DateTimeEncoder))
                 task.last_run = current_time
             except Exception as e:
                 logger.error(f"Error running task for hook {task.hook.__class__.__name__}: {str(e)}")
                 error_event = {
-                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'timestamp': datetime.now().isoformat(),
                     'source': task.hook.__class__.__name__,
                     'status_type': 'failure',
                     'log_level': 'ERROR',
                     'message': f"Error running task: {str(e)}",
                 }
-                self.redis.lpush('log_queue', json.dumps(error_event))
+                self.redis.lpush('log_queue', json.dumps(error_event, cls=DateTimeEncoder))
         
         # Re-add the task to the queue
         self.add_task(task)
