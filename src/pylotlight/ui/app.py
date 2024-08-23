@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import re
 from collections import deque
 from enum import Enum
+from typing import Dict, List, Tuple, Optional, Any
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,39 +23,39 @@ class Severity(Enum):
     OUTAGE = 3
 
 class EventTimeline:
-    def __init__(self, max_events=10):
-        self.events = deque(maxlen=max_events)
+    def __init__(self, max_events: int = 10):
+        self.events: deque = deque(maxlen=max_events)
 
-    def add_event(self, event):
+    def add_event(self, event: Dict[str, Any]) -> None:
         self.events.append(event)
 
-    def get_events(self):
+    def get_events(self) -> List[Dict[str, Any]]:
         return list(self.events)
 
 class ErrorState:
-    def __init__(self, duration=timedelta(minutes=30)):
-        self.error = None
-        self.error_time = None
-        self.duration = duration
+    def __init__(self, duration: timedelta = timedelta(minutes=30)):
+        self.error: Optional[Dict[str, Any]] = None
+        self.error_time: Optional[datetime] = None
+        self.duration: timedelta = duration
 
-    def set_error(self, error):
+    def set_error(self, error: Dict[str, Any]) -> None:
         self.error = error
         self.error_time = datetime.now()
 
-    def clear_error(self):
+    def clear_error(self) -> None:
         self.error = None
         self.error_time = None
 
-    def is_error_active(self):
+    def is_error_active(self) -> bool:
         if self.error and self.error_time:
             return datetime.now() - self.error_time < self.duration
         return False
 
-    def get_error(self):
+    def get_error(self) -> Optional[Dict[str, Any]]:
         return self.error if self.is_error_active() else None
 
 # Helper Functions
-def get_status_icon_and_color(status_type):
+def get_status_icon_and_color(status_type: str) -> Tuple[str, str]:
     status_type = status_type.lower().strip()
     if status_type in ["normal", "healthy", "no issues"]:
         return "✓", "green"
@@ -67,7 +68,7 @@ def get_status_icon_and_color(status_type):
     else:
         return "🔧", "blue"  # For maintenance or unknown status
 
-async def fetch_sse_events():
+async def fetch_sse_events() -> Any:
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{API_BASE_URL}/sse", headers={'Accept': 'text/event-stream'}) as response:
             buffer = ""
@@ -82,7 +83,7 @@ async def fetch_sse_events():
                             yield event
                         buffer = ""
 
-def parse_sse_event(event_data):
+def parse_sse_event(event_data: str) -> Optional[Dict[str, Any]]:
     lines = event_data.split("\n")
     event_type = None
     data = []
@@ -112,7 +113,7 @@ def parse_sse_event(event_data):
     
     return None
 
-def get_severity(status_type):
+def get_severity(status_type: str) -> int:
     status_type = status_type.lower().strip()
     if status_type in ["normal", "healthy", "no issues"]:
         return Severity.NO_ISSUES.value
@@ -125,7 +126,7 @@ def get_severity(status_type):
     else:
         return Severity.NO_ISSUES.value
 
-def process_update(update):
+def process_update(update: Dict[str, Any]) -> bool:
     if 'source' in update and 'status_type' in update:
         source = update['source']
         status_type = update['status_type']
@@ -161,7 +162,7 @@ def process_update(update):
             logger.warning(f"Unknown source in status update: {source}")
     return False
 
-def update_ui():
+def update_ui() -> None:
     # Main status
     main_status = max((st.session_state.statuses[service].get('overall', 'No issues') for service in st.session_state.statuses),
                       key=lambda x: get_severity(x))
@@ -206,7 +207,7 @@ def update_ui():
     # Debug info
     st.empty().text(f"Last update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-async def main():
+async def main() -> None:
     # Set page config
     st.set_page_config(page_title="Pylot Light Status", layout="wide")
 
@@ -281,7 +282,7 @@ async def main():
     if 'last_log_messages' not in st.session_state:
         st.session_state.last_log_messages = {service: "" for service in st.session_state.statuses}
     if 'timelines' not in st.session_state:
-        st.session_state.timelines = {service: EventTimeline() for service in st.session_state.statuses}
+        st.session_state.timelines= {service: EventTimeline() for service in st.session_state.statuses}
     if 'error_states' not in st.session_state:
         st.session_state.error_states = {service: ErrorState() for service in st.session_state.statuses}
 
