@@ -1,4 +1,18 @@
 services:
+
+  ui:
+    depends_on:
+      - fastapi
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src/pylotlight/ui:/ui
+    networks:
+      - default
+
   fastapi:
     build:
       context: .
