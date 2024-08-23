@@ -1,7 +1,13 @@
-from fastapi import APIRouter, HTTPException, Query
-from redis import Redis
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import List, Optional
 from datetime import datetime
+import logging
+from sse_starlette.sse import EventSourceResponse
+import asyncio
+import aioredis
+import json
+from pydantic import ValidationError
+
 from pylotlight.schemas.log_events import (
     LogEvent,
     LogIngestionRequest,
@@ -16,15 +22,18 @@ from pylotlight.schemas.log_events import (
     DbtLogEvent,
     GenericLogEvent,
 )
-from fastapi import APIRouter, HTTPException
-from pydantic import ValidationError
-import logging
 
 router = APIRouter()
-
-redis_client = Redis(host="redis", port=6379, db=0)
 logger = logging.getLogger(__name__)
 
+# Global Redis client
+redis = None
+
+async def get_redis():
+    global redis
+    if redis is None:
+        redis = await aioredis.from_url("redis://redis:6379/0")
+    return redis
 
 @router.post("/ingest", response_model=LogIngestionResponse)
 async def ingest_log(request: LogIngestionRequest):
@@ -32,7 +41,6 @@ async def ingest_log(request: LogIngestionRequest):
     try:
         logger.debug(f"Received log event: {request.log_event}")
 
-        # Use model_dump() instead of dict()
         log_event_dict = request.log_event.model_dump()
         source = log_event_dict.get("source")
 
@@ -47,59 +55,54 @@ async def ingest_log(request: LogIngestionRequest):
                 else:
                     raise ValidationError("Unknown Airflow event type")
             except ValidationError:
-                warnings.append(
-                    f"Log event doesn't meet {source} requirements, treating as GenericLogEvent"
-                )
+                warnings.append(f"Log event doesn't meet {source} requirements, treating as GenericLogEvent")
                 log_event = GenericLogEvent(**log_event_dict)
         elif source == "dbt":
             try:
                 log_event = DbtLogEvent(**log_event_dict)
             except ValidationError:
-                warnings.append(
-                    "Log event doesn't meet dbt requirements, treating as GenericLogEvent"
-                )
+                warnings.append("Log event doesn't meet dbt requirements, treating as GenericLogEvent")
                 log_event = GenericLogEvent(**log_event_dict)
         else:
             log_event = GenericLogEvent(**log_event_dict)
 
-        # Use model_dump_json() instead of json()
         log_json = log_event.model_dump_json()
-        event_id = redis_client.lpush("log_queue", log_json)
+        redis_client = await get_redis()
+        event_id = await redis_client.lpush("log_queue", log_json)
+        
+        # Publish to SSE channel
+        await redis_client.publish('sse_channel', log_json)
+        
         return LogIngestionResponse(
             success=True,
-            message="Log pushed to queue",
+            message="Log pushed to queue and published to SSE channel",
             event_id=str(event_id),
             warnings=warnings,
         )
     except ValidationError as ve:
         logger.error(f"Validation error: {str(ve)}")
-        raise HTTPException(
-            status_code=400, detail=f"Invalid log event data: {str(ve)}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid log event data: {str(ve)}")
     except Exception as e:
         logger.error(f"Error ingesting log: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to ingest log: {str(e)}")
-
 
 @router.post("/ingest/batch", response_model=BatchLogIngestionResponse)
 async def ingest_log_batch(request: BatchLogIngestionRequest):
     event_ids = []
     failed_events = []
+    redis_client = await get_redis()
 
     for index, log_event in enumerate(request.log_events):
         try:
             log_json = log_event.model_dump_json()
-            event_id = redis_client.lpush("log_queue", log_json)
+            event_id = await redis_client.lpush("log_queue", log_json)
+            await redis_client.publish('sse_channel', log_json)
             event_ids.append(str(event_id))
         except Exception:
             failed_events.append(index)
 
     success = len(failed_events) == 0
-    message = (
-        "All logs ingested successfully"
-        if success
-        else f"{len(failed_events)} logs failed to ingest"
-    )
+    message = "All logs ingested successfully" if success else f"{len(failed_events)} logs failed to ingest"
 
     return BatchLogIngestionResponse(
         success=success,
@@ -107,7 +110,6 @@ async def ingest_log_batch(request: BatchLogIngestionRequest):
         event_ids=event_ids,
         failed_events=failed_events,
     )
-
 
 @router.get("/logs", response_model=LogRetrievalResponse)
 async def retrieve_logs(
@@ -138,3 +140,36 @@ async def retrieve_logs(
     has_more = (offset + limit) < total_count
 
     return LogRetrievalResponse(logs=logs, total_count=total_count, has_more=has_more)
+
+@router.get('/sse')
+async def sse(request: Request):
+    async def event_generator():
+        redis_client = await get_redis()
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe('sse_channel')
+        logger.info("Subscribed to sse_channel")
+
+        try:
+            while True:
+                # Wait for a message to be received
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1)
+                if message is not None:
+                    logger.info(f"Received message: {message}")
+                    if message['type'] == 'message':
+                        try:
+                            data = message['data'].decode('utf-8')
+                            logger.info(f"Sending SSE event: {data}")
+                            yield {
+                                "event": "update",
+                                "data": data
+                            }
+                        except Exception as decode_error:
+                            logger.error(f"Failed to decode message: {decode_error}")
+                await asyncio.sleep(5)
+        except Exception as e:
+            logger.error(f"Error in SSE event generator: {str(e)}")
+        finally:
+            await pubsub.unsubscribe('sse_channel')
+            logger.info("Unsubscribed from sse_channel")
+
+    return EventSourceResponse(event_generator())

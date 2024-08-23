@@ -8,14 +8,18 @@ RUN useradd -ms /bin/bash api && \
     mkdir -p /home/api && \
     chown -R api:api /home/api
 
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY src/pylotlight /app/pylotlight
+
+ENV PYTHONPATH=/app
+ENV PATH="/home/api/.local/bin:${PATH}"
+
 USER api
 
-WORKDIR /pylotlight
-
-RUN pip install fastapi[standard] pydantic redis uvicorn sqlalchemy psycopg2
-
-COPY --chown=api:api src/pylotlight .
-
-CMD ["python", "-m", "fastapi", "run", "api/main.py","--port", "8000"]
+CMD ["uvicorn", "pylotlight.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 EXPOSE 8000

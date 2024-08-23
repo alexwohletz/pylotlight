@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 config = Config()
 redis = Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
-sse_redis = Redis(host=config.REDIS_HOST, port=config.REDIS_PORT, db=1)  # Use a separate Redis database for SSE
 
 def process_event(event: dict):
     try:
@@ -60,9 +59,9 @@ def process_event(event: dict):
             )
             db.add(db_log)
             db.commit()
-
             # Publish to SSE channel
-            sse_redis.publish('sse_channel', json.dumps(event))
+            redis.publish('sse_channel', json.dumps(event))
+            logger.info(f"Published event to SSE channel: {json.dumps(event)}")
         finally:
             db.close()
     except ValidationError as e:
