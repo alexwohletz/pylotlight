@@ -3,8 +3,10 @@ import asyncio
 import aiohttp
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
+from collections import deque
+from enum import Enum
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -12,6 +14,44 @@ logger = logging.getLogger(__name__)
 
 # Constants
 API_BASE_URL = "http://fastapi:8000"  # Adjust as needed
+
+class Severity(Enum):
+    NO_ISSUES = 0
+    NOTICE = 1
+    INCIDENT = 2
+    OUTAGE = 3
+
+class EventTimeline:
+    def __init__(self, max_events=10):
+        self.events = deque(maxlen=max_events)
+
+    def add_event(self, event):
+        self.events.append(event)
+
+    def get_events(self):
+        return list(self.events)
+
+class ErrorState:
+    def __init__(self, duration=timedelta(minutes=30)):
+        self.error = None
+        self.error_time = None
+        self.duration = duration
+
+    def set_error(self, error):
+        self.error = error
+        self.error_time = datetime.now()
+
+    def clear_error(self):
+        self.error = None
+        self.error_time = None
+
+    def is_error_active(self):
+        if self.error and self.error_time:
+            return datetime.now() - self.error_time < self.duration
+        return False
+
+    def get_error(self):
+        return self.error if self.is_error_active() else None
 
 # Helper Functions
 def get_status_icon_and_color(status_type):
@@ -72,18 +112,50 @@ def parse_sse_event(event_data):
     
     return None
 
+def get_severity(status_type):
+    status_type = status_type.lower().strip()
+    if status_type in ["normal", "healthy", "no issues"]:
+        return Severity.NO_ISSUES.value
+    elif status_type == "notice":
+        return Severity.NOTICE.value
+    elif status_type in ["incident", "unhealthy"]:
+        return Severity.INCIDENT.value
+    elif status_type in ["outage", "failure"]:
+        return Severity.OUTAGE.value
+    else:
+        return Severity.NO_ISSUES.value
+
 def process_update(update):
     if 'source' in update and 'status_type' in update:
         source = update['source']
         status_type = update['status_type']
         
         # Map the source to the correct key in st.session_state.statuses
-        source = next((s for s in ['airflow', 'dbt', 'database', 'ci'] if s in source), source)
+        service = next((s for s in ['airflow', 'dbt', 'database', 'ci'] if s in source), source)
+        component = source.replace(f"{service}_", "")
         
-        if source in st.session_state.statuses:
-            st.session_state.statuses[source] = status_type.capitalize()
-            st.session_state.last_log_messages[source] = update.get('message', '')
-            logger.info(f"Updated status for {source}: {status_type}")
+        if service in st.session_state.statuses:
+            severity = get_severity(status_type)
+            current_severity = get_severity(st.session_state.statuses[service].get('overall', 'No issues'))
+            
+            if component:
+                st.session_state.statuses[service][component] = status_type.capitalize()
+            else:
+                st.session_state.statuses[service]['overall'] = status_type.capitalize()
+            
+            st.session_state.last_log_messages[service] = update.get('message', '')
+            st.session_state.timelines[service].add_event(update)
+            
+            if severity > current_severity:
+                st.session_state.error_states[service].set_error(update)
+            elif severity == Severity.NO_ISSUES.value:
+                st.session_state.error_states[service].clear_error()
+            
+            # Update overall status
+            overall_severity = max(get_severity(status) for status in st.session_state.statuses[service].values())
+            st.session_state.statuses[service]['overall'] = Severity(overall_severity).name.lower().replace("_", " ").capitalize()
+            
+            logger.info(f"Updated status for {service} - {component if component else 'overall'}: {status_type}")
             return True
         else:
             logger.warning(f"Unknown source in status update: {source}")
@@ -91,20 +163,30 @@ def process_update(update):
 
 def update_ui():
     # Main status
-    main_status = max(st.session_state.statuses.values(), key=lambda x: ["No issues", "Notice", "Incident", "Outage", "Failure"].index(x) if x in ["No issues", "Notice", "Incident", "Outage", "Failure"] else -1)
+    main_status = max((st.session_state.statuses[service].get('overall', 'No issues') for service in st.session_state.statuses),
+                      key=lambda x: get_severity(x))
     main_icon, main_color = get_status_icon_and_color(main_status)
-    st.markdown(f'<div class="main-status"><span class="status-icon {main_color}">{main_icon}</span>Platform Status</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="main-status"><span class="status-icon {main_color}">{main_icon}</span>Platform Status: {main_status}</div>', unsafe_allow_html=True)
 
     # Sub-statuses in a grid
     st.markdown('<div class="status-grid">', unsafe_allow_html=True)
     for service, status in st.session_state.statuses.items():
         st.markdown(f'<div class="status-item">', unsafe_allow_html=True)
         st.markdown(f'<div class="service-name">{service.upper()}</div>', unsafe_allow_html=True)
-        icon, color = get_status_icon_and_color(status.lower())
-        st.markdown(f'<div class="service-status"><span class="status-icon {color}">{icon}</span>{status}</div>', unsafe_allow_html=True)
+        overall_status = status.get('overall', 'No issues')
+        icon, color = get_status_icon_and_color(overall_status)
+        st.markdown(f'<div class="service-status"><span class="status-icon {color}">{icon}</span>{overall_status}</div>', unsafe_allow_html=True)
         with st.expander("Additional information"):
+            for component, component_status in status.items():
+                if component != 'overall':
+                    st.markdown(f"**{component.capitalize()}**: {component_status}")
+            st.markdown("---")
+            st.markdown("**Recent Events:**")
+            for event in st.session_state.timelines[service].get_events():
+                st.markdown(f"- {event.get('timestamp', 'N/A')}: {event.get('message', 'No message')}")
+            st.markdown("---")
             last_message = st.session_state.last_log_messages.get(service, "No additional information available.")
-            st.markdown(last_message)
+            st.markdown(f"**Last Message:** {last_message}")
         st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -174,18 +256,34 @@ async def main():
     # Initialize session state
     if 'statuses' not in st.session_state:
         st.session_state.statuses = {
-            "dbt": "No issues",
-            "airflow": "No issues",
-            "database": "No issues",
-            "ci": "No issues"
+            "airflow": {
+                "overall": "No issues",
+                "health_check": "No issues",
+                "import_status": "No issues",
+                "dag_execution": "No issues"
+            },
+            "dbt": {
+                "overall": "No issues",
+                "execution": "No issues",
+                "compilation": "No issues"
+            },
+            "database": {
+                "overall": "No issues",
+                "connection": "No issues",
+                "performance": "No issues"
+            },
+            "ci": {
+                "overall": "No issues",
+                "builds": "No issues",
+                "tests": "No issues"
+            }
         }
     if 'last_log_messages' not in st.session_state:
-        st.session_state.last_log_messages = {
-            "dbt": "",
-            "airflow": "",
-            "database": "",
-            "ci": ""
-        }
+        st.session_state.last_log_messages = {service: "" for service in st.session_state.statuses}
+    if 'timelines' not in st.session_state:
+        st.session_state.timelines = {service: EventTimeline() for service in st.session_state.statuses}
+    if 'error_states' not in st.session_state:
+        st.session_state.error_states = {service: ErrorState() for service in st.session_state.statuses}
 
     # Main Streamlit UI
     st.title("Pylot Light Status Page")
