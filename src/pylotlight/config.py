@@ -8,6 +8,7 @@ load_dotenv()
 class Config:
     REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
     REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+    API_URL = os.getenv('API_URL', 'http://fastapi:8000')
     
     # Hook configurations
     HOOKS: Dict[str, Dict[str, Any]] = {

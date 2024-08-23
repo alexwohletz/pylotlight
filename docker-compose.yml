@@ -5,7 +5,7 @@ services:
       - fastapi
     build:
       context: .
-      dockerfile: Dockerfile.ui
+      dockerfile: docker/Dockerfile.ui
     ports:
       - "8501:8501"
     volumes:
@@ -16,7 +16,7 @@ services:
   fastapi:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: docker/Dockerfile.api
     ports:
       - "8000:8000"
     depends_on:
@@ -34,7 +34,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      dockerfile: docker/Dockerfile.worker
     depends_on:
       - redis
       - postgres
