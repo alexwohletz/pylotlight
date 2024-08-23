@@ -7,6 +7,7 @@ class LogEvent(Base):
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, index=True)
     source = Column(String, index=True)
+    source_type = Column(String, index=True)
     log_level = Column(String, index=True)
     message = Column(String)
     status_type = Column(String)

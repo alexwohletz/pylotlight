@@ -7,6 +7,7 @@ from pydantic.json import pydantic_encoder
 class LogEventBase(BaseModel):
     timestamp: datetime = Field(..., description="The timestamp of the log event")
     source: str = Field(..., description="The source of the log (e.g., 'airflow', 'dbt')")
+    source_type: str = Field(..., description="The type of the source (e.g., 'health_check', 'test_failure', 'failed_dag', 'dbt')")
     status_type: str = Field(..., description="The status type of the log event (e.g., 'outage', 'incident','failure','normal')")
     log_level: str = Field(..., description="The log level (e.g., INFO, ERROR)")
     message: str = Field(..., description="The log message")
@@ -16,22 +17,29 @@ class LogEventBase(BaseModel):
         "protected_namespaces": ()
     }
 
-class AirflowHealthCheckEvent(LogEventBase):
-    source: Literal["airflow_health_check"]
+class AirflowLogEvent(LogEventBase):
+    source: Literal["airflow"] = Field(default="airflow")
+
+class AirflowHealthCheckEvent(AirflowLogEvent):
+    source_type: Literal["health_check"] = Field(default="health_check")
     metadatabase_status: str
     scheduler_status: str
     triggerer_status: str
 
-class AirflowImportErrorEvent(LogEventBase):
-    source: Literal["airflow_import_error"]
+class AirflowImportErrorEvent(AirflowLogEvent):
+    source_type: Literal["airflow_import_error"] = Field(default="airflow_import_error")
     filename: str
     stack_trace: str
 
-class AirflowFailedDagEvent(LogEventBase):
-    source: Literal["airflow_failed_dag"]
+class AirflowFailedDagEvent(AirflowLogEvent):
+    source_type: Literal["airflow_failed_dag"] = Field(default="airflow_failed_dag")
     dag_id: str
     execution_date: datetime
     try_number: int
+
+class AirflowConnectionErrorEvent(AirflowLogEvent):
+    source_type: Literal["airflow_connection_error"] = Field(default="airflow_connection_error")
+    message: str
 
 class DbtLogEvent(LogEventBase):
     source: Literal["dbt"]
@@ -42,7 +50,7 @@ class DbtLogEvent(LogEventBase):
 class GenericLogEvent(LogEventBase):
     additional_data: Dict[str, Any] = Field(default_factory=dict)
 
-LogEvent = Union[AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent, DbtLogEvent, GenericLogEvent]
+LogEvent = Union[AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent, AirflowConnectionErrorEvent, DbtLogEvent, GenericLogEvent]
 
 # API-specific models
 class LogIngestionRequest(BaseModel):

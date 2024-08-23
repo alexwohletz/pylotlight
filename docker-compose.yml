@@ -22,11 +22,12 @@ services:
     depends_on:
       - redis
       - postgres
+      - alembic
     environment:
       - DATABASE_URL=postgresql://pylotlight:pylotlight@postgres/pylotlight
       - REDIS_URL=redis://redis:6379
     volumes:
-      - ./src/pylotlight/api:/api
+      - ./src/pylotlight:/app/pylotlight
     networks:
       - default
       - airflow-pylotlight
@@ -47,6 +48,21 @@ services:
     networks:
       - default
       - airflow-pylotlight
+
+  alembic:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    depends_on:
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql://pylotlight:pylotlight@postgres/pylotlight
+    volumes:
+      - ./src/pylotlight:/app/pylotlight
+    working_dir: /app/pylotlight
+    command: >
+      sh -c "alembic revision --autogenerate -m 'Initial migration' &&
+             alembic upgrade head"
 
   redis:
     image: redis/redis-stack-server:7.2.0-v6

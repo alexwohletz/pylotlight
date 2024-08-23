@@ -5,8 +5,8 @@ import logging
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 import aioredis
-import json
 from pydantic import ValidationError
+from pylotlight.sources import get_source_handler
 
 from pylotlight.schemas.log_events import (
     LogEvent,
@@ -16,10 +16,6 @@ from pylotlight.schemas.log_events import (
     BatchLogIngestionResponse,
     LogRetrievalResponse,
     LogLevel,
-    AirflowHealthCheckEvent,
-    AirflowImportErrorEvent,
-    AirflowFailedDagEvent,
-    DbtLogEvent,
     GenericLogEvent,
 )
 
@@ -39,31 +35,14 @@ async def get_redis():
 async def ingest_log(request: LogIngestionRequest):
     warnings = []
     try:
-        logger.debug(f"Received log event: {request.log_event}")
-
         log_event_dict = request.log_event.model_dump()
         source = log_event_dict.get("source")
 
-        if source.startswith("airflow_"):
-            try:
-                if source == "airflow_health_check":
-                    log_event = AirflowHealthCheckEvent(**log_event_dict)
-                elif source == "airflow_import_error":
-                    log_event = AirflowImportErrorEvent(**log_event_dict)
-                elif source == "airflow_failed_dag":
-                    log_event = AirflowFailedDagEvent(**log_event_dict)
-                else:
-                    raise ValidationError("Unknown Airflow event type")
-            except ValidationError:
-                warnings.append(f"Log event doesn't meet {source} requirements, treating as GenericLogEvent")
-                log_event = GenericLogEvent(**log_event_dict)
-        elif source == "dbt":
-            try:
-                log_event = DbtLogEvent(**log_event_dict)
-            except ValidationError:
-                warnings.append("Log event doesn't meet dbt requirements, treating as GenericLogEvent")
-                log_event = GenericLogEvent(**log_event_dict)
-        else:
+        try:
+            source_handler = get_source_handler(source)
+            log_event = source_handler.validate_and_process(log_event_dict)
+        except ValueError as ve:
+            warnings.append(str(ve))
             log_event = GenericLogEvent(**log_event_dict)
 
         log_json = log_event.model_dump_json()
@@ -79,11 +58,7 @@ async def ingest_log(request: LogIngestionRequest):
             event_id=str(event_id),
             warnings=warnings,
         )
-    except ValidationError as ve:
-        logger.error(f"Validation error: {str(ve)}")
-        raise HTTPException(status_code=400, detail=f"Invalid log event data: {str(ve)}")
     except Exception as e:
-        logger.error(f"Error ingesting log: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to ingest log: {str(e)}")
 
 @router.post("/ingest/batch", response_model=BatchLogIngestionResponse)

@@ -3,14 +3,10 @@ from pylotlight.api.routes import router as api_router
 from pylotlight.database.session import create_tables
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from alembic import command
+from alembic.config import Config
 
-
-@asynccontextmanager 
-async def lifespan(app: FastAPI):
-    create_tables()
-    yield
-
-app = FastAPI(title="Pylot Light", lifespan=lifespan)
+app = FastAPI(title="Pylot Light")
 
 app.add_middleware(
        CORSMiddleware,

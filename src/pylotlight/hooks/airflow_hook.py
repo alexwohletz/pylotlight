@@ -5,7 +5,7 @@ import base64
 import logging
 from pylotlight.hooks.base_hook import BaseHook
 from pylotlight.config import Config
-from pylotlight.schemas.log_events import AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent
+from pylotlight.schemas.log_events import AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent, AirflowConnectionErrorEvent
 import json 
 import time
 from requests.exceptions import RequestException
@@ -75,12 +75,18 @@ class AirflowHook(BaseHook):
         logger.info(f"Found {len(dag_runs)} failed DAG runs in the last 24 hours.")
         return dag_runs
 
-    def push_events(self) -> List[Union[AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent]]:
+    def push_events(self) -> List[Union[AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent,AirflowConnectionErrorEvent]]:
+        events = []
+        
         if not self.check_connection():
             logger.error("Failed to establish connection with Airflow. Aborting push_events().")
-            return []
-
-        events = []
+            events.append(AirflowConnectionErrorEvent(
+                timestamp=datetime.now(timezone.utc),
+                status_type="critical",
+                log_level="ERROR",
+                message=f"Failed to establish connection with Airflow at the specified URL: {self.base_url}",
+            ))
+            return events
 
         # Health check event
         health_check = self.get_health_check()
@@ -93,7 +99,8 @@ class AirflowHook(BaseHook):
         
         events.append(AirflowHealthCheckEvent(
             timestamp=datetime.now(timezone.utc),
-            source='airflow_health_check',
+            source="airflow",
+            source_type="health_check",
             status_type=health_status,
             log_level=log_level,
             message=f"Health check: Metadatabase: {metadata_health_check}, Scheduler: {scheduler_health_check}, Triggerer: {triggerer_health_check}",
@@ -109,7 +116,8 @@ class AirflowHook(BaseHook):
             for error in list_of_import_errors:
                 events.append(AirflowImportErrorEvent(
                     timestamp=datetime.fromisoformat(error['timestamp']),
-                    source='airflow_import_error',
+                    source="airflow",
+                    source_type="airflow_import_error",
                     status_type='failure',
                     log_level='ERROR',
                     message=f"Import error: {error['filename']} - {error['stack_trace']}",
@@ -119,7 +127,8 @@ class AirflowHook(BaseHook):
         else:
             events.append(AirflowImportErrorEvent(
                 timestamp=datetime.now(timezone.utc),
-                source='airflow_import_error',
+                source="airflow",
+                source_type="airflow_import_error",
                 status_type='normal',
                 log_level='INFO',
                 message="No import errors found.",
@@ -132,7 +141,8 @@ class AirflowHook(BaseHook):
         for dag_run in failed_dagruns:
             events.append(AirflowFailedDagEvent(
                 timestamp=datetime.fromisoformat(dag_run['execution_date']),
-                source='airflow_failed_dag',
+                source="airflow",
+                source_type="airflow_failed_dag",
                 status_type='failure',
                 log_level='ERROR',
                 message=f"DAG failed: {dag_run['dag_id']}",
@@ -142,7 +152,7 @@ class AirflowHook(BaseHook):
             ))
 
         return events
-
+    
 if __name__ == '__main__':
     hook = AirflowHook()
     print(hook.push_events())
