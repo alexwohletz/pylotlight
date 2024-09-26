@@ -6,12 +6,14 @@ from redis import Redis
 from sqlalchemy.orm import Session
 from pylotlight.database.session import SessionLocal, engine
 from pylotlight.database.models.log_event import LogEvent as DBLogEvent
-from pylotlight.schemas.log_events import LogEvent as SchemaLogEvent, DbtLogEvent, GenericLogEvent, AirflowHealthCheckEvent, AirflowImportErrorEvent, AirflowFailedDagEvent
+from pylotlight.schemas.log_events import LogEvent as SchemaLogEvent, GenericLogEvent
 from pylotlight.worker.task_queue import TaskQueue
 from pylotlight.worker.task import Task
 from pylotlight.hooks.airflow_hook import AirflowHook
 from pylotlight.config import Config
 from pydantic import ValidationError
+from pylotlight.sources import get_source_handler, BaseSource
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -21,41 +23,39 @@ redis = Redis(host=config.REDIS_HOST, port=config.REDIS_PORT)
 def process_event(event: dict):
     try:
         # Ensure required fields are present
-        required_fields = ['timestamp', 'source', 'status_type', 'log_level', 'message']
+        required_fields = ['timestamp', 'source', 'source_type', 'status_type', 'log_level', 'message']
         for field in required_fields:
             if field not in event:
                 raise ValidationError(f"Missing required field: {field}")
 
-        # Determine the correct LogEvent subclass based on the 'source' field
+        # Get the appropriate log source handler
         source = event['source']
-        if source.startswith("airflow_"):
+        try:
+            source_handler = get_source_handler(source)
+        except ValueError:
+            logger.warning(f"No specific LogSource handler found for source: {source}. Using GenericLogEvent.")
+            source_handler = None
+
+        if source_handler:
             try:
-                if source == "airflow_health_check":
-                    log = AirflowHealthCheckEvent(**event)
-                elif source == "airflow_import_error":
-                    log = AirflowImportErrorEvent(**event)
-                elif source == "airflow_failed_dag":
-                    log = AirflowFailedDagEvent(**event)
-                else:
-                    raise ValidationError("Unknown Airflow event type")
-            except ValidationError as e:
-                logger.error(f"Log event doesn't meet {source} requirements, treating as GenericLogEvent: {str(e)}")
-                log = GenericLogEvent(**event)
-        elif event['source'] == 'dbt':
-            log = DbtLogEvent(**event)
+                parsed_log = source_handler.validate_and_process(event)
+            except Exception as e:
+                logger.error(f"Error processing log with {source} source: {str(e)}")
+                parsed_log = GenericLogEvent(**event)
         else:
-            log = GenericLogEvent(**event)
+            parsed_log = GenericLogEvent(**event)
 
         # Store in database
         db = SessionLocal()
         try:
             db_log = DBLogEvent(
-                timestamp=log.timestamp,
-                source=log.source,
-                status_type=log.status_type,
-                log_level=log.log_level,
-                message=log.message,
-                additional_data=log.model_dump_json(exclude={'timestamp', 'source', 'status_type', 'log_level', 'message'})
+                timestamp=parsed_log.timestamp,
+                source=parsed_log.source,
+                source_type=parsed_log.source_type,
+                status_type=parsed_log.status_type,
+                log_level=parsed_log.log_level,
+                message=parsed_log.message,
+                additional_data=parsed_log.model_dump_json(exclude={'timestamp', 'source', 'source_type', 'status_type', 'log_level', 'message'})
             )
             db.add(db_log)
             db.commit()
