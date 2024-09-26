@@ -92,7 +92,7 @@ To run Pylot Light on your local machine, follow these steps:
 
 6. Run the main application:
    ```
-   python src/pylotlight/main.py
+   docker-compose up -d
    ```
 
 7. Use the provided API endpoints to ingest, retrieve, and analyze log events.
