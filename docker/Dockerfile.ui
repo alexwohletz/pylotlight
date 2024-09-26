@@ -1,0 +1,22 @@
+FROM python:3.10-bullseye
+
+USER root
+
+RUN pip install --upgrade pip
+
+RUN useradd -ms /bin/bash ui && \
+    mkdir -p /home/ui && \
+    chown -R ui:ui /home/ui
+
+USER ui
+
+WORKDIR /app
+
+RUN pip install fastapi[standard] pydantic streamlit sseclient requests aiohttp
+
+COPY --chown=ui:ui src /app/src
+HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+
+CMD ["python","-m", "streamlit", "run", "/ui/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
+EXPOSE 8510

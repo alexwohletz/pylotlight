@@ -1,0 +1,26 @@
+FROM python:3.10-bullseye
+
+USER root
+
+RUN pip install --upgrade pip
+
+RUN useradd -ms /bin/bash api && \
+    mkdir -p /home/api && \
+    chown -R api:api /home/api
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY src/pylotlight /app/pylotlight
+COPY src/pylotlight/alembic.ini /app/pylotlight/alembic.ini
+
+ENV PYTHONPATH=/app
+ENV PATH="/home/api/.local/bin:${PATH}"
+
+USER api
+
+CMD ["uvicorn", "pylotlight.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+EXPOSE 8000

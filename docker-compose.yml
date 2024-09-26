@@ -1,0 +1,102 @@
+services:
+
+  ui:
+    depends_on:
+      - fastapi
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ui
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src/pylotlight/ui:/ui
+    networks:
+      - default
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - postgres
+      - alembic
+    environment:
+      - DATABASE_URL=postgresql://pylotlight:pylotlight@postgres/pylotlight
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./src/pylotlight:/app/pylotlight
+    networks:
+      - default
+      - airflow-pylotlight
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    depends_on:
+      - redis
+      - postgres
+      - fastapi
+    environment:
+      - DATABASE_URL=postgresql://pylotlight:pylotlight@postgres/pylotlight
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./src:/app/src
+    networks:
+      - default
+      - airflow-pylotlight
+
+  alembic:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    depends_on:
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql://pylotlight:pylotlight@postgres/pylotlight
+    volumes:
+      - ./src/pylotlight:/app/pylotlight
+    working_dir: /app/pylotlight
+    command: >
+      sh -c "alembic revision --autogenerate -m 'Initial migration' &&
+             alembic upgrade head"
+
+  redis:
+    image: redis/redis-stack-server:7.2.0-v6
+    ports:
+      - 6379:6379
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+    volumes:
+      - redis_data:/data
+      
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    ports:
+      - 8081:8081
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=pylotlight
+      - POSTGRES_PASSWORD=pylotlight
+      - POSTGRES_DB=pylotlight
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+     airflow-pylotlight:
+       external: true
