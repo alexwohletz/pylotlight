@@ -13,13 +13,18 @@ INTERVAL = 2  # seconds between events
 
 # Sample data
 LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-SOURCES = ["airflow_health_check", "airflow_import_error", "airflow_failed_dag", "dbt", "generic"]
+SOURCES = ["airflow", "dbt", "generic"]
+SOURCE_TYPES = {
+    "airflow": ["health_check", "import_error", "failed_dag"],
+    "dbt": ["dbt"],
+    "generic": ["generic"]
+}
 STATUS_TYPE_MAPPING = {
-    "airflow_health_check": "normal",
-    "airflow_import_error": "incident",
-    "airflow_failed_dag": "failure",
+    "health_check": "normal",
+    "import_error": "incident",
+    "failed_dag": "failure",
     "dbt": "normal",
-    "generic": random.choice(["outage", "incident", "failure", "normal"]),
+    "generic": lambda: random.choice(["outage", "incident", "failure", "normal"]),
 }
 LOG_LEVEL_MAPPING = {
     "incident": "ERROR",
@@ -28,22 +33,23 @@ LOG_LEVEL_MAPPING = {
     "normal": "INFO",
 }
 
-
-def generate_base_log_event(source: str) -> Dict[str, Any]:
-    status_type = STATUS_TYPE_MAPPING[source]
+def generate_base_log_event(source: str, source_type: str) -> Dict[str, Any]:
+    status_type = STATUS_TYPE_MAPPING[source_type]
+    if callable(status_type):
+        status_type = status_type()
     log_level = LOG_LEVEL_MAPPING.get(status_type, random.choice(LOG_LEVELS))
 
     return {
         "timestamp": datetime.now().isoformat(),
         "source": source,
+        "source_type": source_type,
         "status_type": status_type,
         "log_level": log_level,
-        "message": f"{status_type.upper()} event for {source}",
+        "message": f"{status_type.upper()} event for {source} ({source_type})",
     }
 
-
 def generate_airflow_health_check_event() -> Dict[str, Any]:
-    event = generate_base_log_event("airflow_health_check")
+    event = generate_base_log_event("airflow", "health_check")
     event.update({
         "metadatabase_status": random.choice(["healthy", "unhealthy"]),
         "scheduler_status": random.choice(["healthy", "unhealthy"]),
@@ -51,18 +57,16 @@ def generate_airflow_health_check_event() -> Dict[str, Any]:
     })
     return event
 
-
 def generate_airflow_import_error_event() -> Dict[str, Any]:
-    event = generate_base_log_event("airflow_import_error")
+    event = generate_base_log_event("airflow", "import_error")
     event.update({
         "filename": f"/path/to/dag/file_{random.randint(1, 100)}.py",
         "stack_trace": f"ImportError: No module named 'missing_module_{random.randint(1, 10)}'"
     })
     return event
 
-
 def generate_airflow_failed_dag_event() -> Dict[str, Any]:
-    event = generate_base_log_event("airflow_failed_dag")
+    event = generate_base_log_event("airflow", "failed_dag")
     event.update({
         "dag_id": f"example_dag_{random.randint(1, 50)}",
         "execution_date": (datetime.now() - timedelta(hours=random.randint(1, 24))).isoformat(),
@@ -70,9 +74,8 @@ def generate_airflow_failed_dag_event() -> Dict[str, Any]:
     })
     return event
 
-
 def generate_dbt_log_event() -> Dict[str, Any]:
-    event = generate_base_log_event("dbt")
+    event = generate_base_log_event("dbt", "dbt")
     event.update({
         "model_name": f"model_{random.randint(1, 100)}",
         "node_id": f"model.example.model_{random.randint(1, 100)}",
@@ -80,10 +83,8 @@ def generate_dbt_log_event() -> Dict[str, Any]:
     })
     return event
 
-
 def generate_generic_log_event() -> Dict[str, Any]:
-    source = "generic"
-    event = generate_base_log_event(source)
+    event = generate_base_log_event("generic", "generic")
     event.update({
         "additional_data": {
             "key1": f"value_{random.randint(1, 100)}",
@@ -93,29 +94,29 @@ def generate_generic_log_event() -> Dict[str, Any]:
     })
     return event
 
-
 def generate_log_event() -> Dict[str, Any]:
     source = random.choice(SOURCES)
-    if source == "airflow_health_check":
-        return generate_airflow_health_check_event()
-    elif source == "airflow_import_error":
-        return generate_airflow_import_error_event()
-    elif source == "airflow_failed_dag":
-        return generate_airflow_failed_dag_event()
+    source_type = random.choice(SOURCE_TYPES[source])
+    
+    if source == "airflow":
+        if source_type == "health_check":
+            return generate_airflow_health_check_event()
+        elif source_type == "import_error":
+            return generate_airflow_import_error_event()
+        elif source_type == "failed_dag":
+            return generate_airflow_failed_dag_event()
     elif source == "dbt":
         return generate_dbt_log_event()
     else:
         return generate_generic_log_event()
 
-
 def send_log_event(event: Dict[str, Any]) -> None:
     try:
         response = requests.post(INGEST_ENDPOINT, json={"log_event": event})
         response.raise_for_status()
-        print(f"Event sent successfully: {event['source']}")
+        print(f"Event sent successfully: {event['source']} ({event['source_type']})")
     except requests.exceptions.RequestException as e:
         print(f"Failed to send event: {e}")
-
 
 def send_batch_log_events(events: List[Dict[str, Any]]) -> None:
     try:
@@ -124,7 +125,6 @@ def send_batch_log_events(events: List[Dict[str, Any]]) -> None:
         print(f"Batch of {len(events)} events sent successfully")
     except requests.exceptions.RequestException as e:
         print(f"Failed to send batch: {e}")
-
 
 def main() -> None:
     events = [generate_log_event() for _ in range(NUM_EVENTS)]
@@ -140,7 +140,6 @@ def main() -> None:
     #     batch = events[i:i+batch_size]
     #     send_batch_log_events(batch)
     #     time.sleep(INTERVAL)
-
 
 if __name__ == "__main__":
     main()
