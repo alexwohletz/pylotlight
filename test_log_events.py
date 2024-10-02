@@ -99,7 +99,7 @@ def generate_log_event() -> Dict[str, Any]:
     source_type = random.choice(SOURCE_TYPES[source])
     
     if source == "airflow":
-        if source_type == "health_check":
+        if source_type == "airflow_":
             return generate_airflow_health_check_event()
         elif source_type == "import_error":
             return generate_airflow_import_error_event()

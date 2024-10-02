@@ -7,9 +7,13 @@ services:
       context: .
       dockerfile: docker/Dockerfile.ui
     ports:
-      - "8501:8501"
+      - "3000:3000"
     volumes:
-      - ./src/pylotlight/ui:/ui
+      - ./src/pylotlight/ui:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=production
     networks:
       - default
 
@@ -98,5 +102,5 @@ volumes:
   redis_data:
 
 networks:
-     airflow-pylotlight:
-       external: true
+  airflow-pylotlight:
+    name: airflow-pylotlight
